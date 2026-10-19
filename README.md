@@ -86,32 +86,3 @@ Tes logika game: `python tests/test_game_logic.py`
 | `FAIR_PLAY` | `"strong"` | `"basic"` = minimal 1 balok muat (aturan PRD) |
 | `TIER_TABLE` | sesuai PRD | peluang tier per rentang skor |
 | `DISPLAY_SCALE` | 1.0 | kecilkan kalau jendela 1280x720 tidak muat di layar |
-
-## Catatan desain (beda dari PRD awal)
-
-- **Penanda**: sarung tangan biru muda (HSV) sebagai default; mode kulit tetap ada.
-  Ubah poin "Batasan Teknis" di PRD sesuai.
-- **Kalibrasi** memakai persentil 5–95 + margin (bukan min/max) dan membuang
-  piksel outlier, jadi tidak rusak oleh sela jari atau latar di pojok kotak.
-- **Titik kursor** default = pusat telapak (distance transform), tidak tertarik
-  ke arah lengan seperti centroid.
-- **Smoothing** One Euro Filter: EMA dengan α adaptif (halus saat diam untuk
-  dwell, responsif saat bergerak).
-- **Histeresis target**: sel target baru diterima setelah stabil 4 frame, jadi
-  timer dwell tidak ter-reset karena jitter di perbatasan petak.
-- **Snap ke tepi**: posisi balok di-clamp ke dalam papan.
-- **Cancel** hanya aktif setelah balok pernah masuk papan (atau tahan di slot asal),
-  supaya balok tidak langsung batal saat baru diambil dari slot di luar papan.
-  Ada cooldown 0,8 detik dan slot yang baru dibatalkan tidak bisa langsung
-  diambil lagi sebelum kursor keluar dulu.
-- **Fair-play kuat**: spawner mencari set di mana ketiga balok bisa ditaruh dalam
-  suatu urutan (pencarian bitmask, cepat di papan 5x5). Maksimal 1 balok Tier 3
-  per set supaya papan kecil tidak langsung penuh.
-- **Skor**: 1 poin/petak + 10 × (jumlah garis)² × pengali kombo
-  (1 + 0,5 per kombo berturut-turut) + 50 bonus papan bersih.
-
-## Mengganti UI dengan aset
-
-Semua gambar ada di `ui.py`. Untuk memakai aset (PNG balok, latar, font), ganti
-isi `draw_cell`, `Renderer._draw_header`, `_draw_slots`, dst. Simpan file aset di
-folder `assets/`. Logika game dan state machine tidak perlu diubah.
