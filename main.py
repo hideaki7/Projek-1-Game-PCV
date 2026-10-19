@@ -309,7 +309,10 @@ def main() -> None:
                 if frame is not None:
                     before = calib.phase
                     calib.feed(frame)
-                    if before == "sampling" and calib.phase == "preview":
+                    if calib.phase == "wait" and debug.is_open:
+                        debug.sync(tracker)
+                    elif before == "sampling" and calib.phase == "preview":
+                        tracker.save_profile(prof)
                         debug.sync(tracker)          # trackbar ikut hasil kalibrasi baru
                 canvas = renderer.render_calibration(
                     frame, calib, tracker, result,
@@ -335,7 +338,8 @@ def main() -> None:
                 }
                 canvas = renderer.render_game(game, inter, cursor, result, info, now)
 
-            debug.apply(tracker)
+            if app != "calib" or calib.phase == "preview":
+                debug.apply(tracker)
             debug.show(result)
             if scale != 1.0:
                 canvas = cv2.resize(canvas, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -365,7 +369,10 @@ def main() -> None:
                         tracker.save_profile(prof)
                         inter.toast("Kalibrasi selesai, profil disimpan.", now)
                     elif calib.phase == "wait":
-                        inter.toast("Kalibrasi dilewati, pakai rentang saat ini.", now)
+                        calib.calibrate_instant(frame)
+                        tracker.save_profile(prof)
+                        debug.sync(tracker)
+                        inter.toast("Warna dominan di kotak dikunci & disimpan.", now)
                     if calib.phase != "sampling":
                         app = "play"
                         smoother.reset()

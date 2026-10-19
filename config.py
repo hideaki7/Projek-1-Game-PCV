@@ -17,12 +17,12 @@ CAMERA_BACKEND = None
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 720
 MIRROR = True            # balik horizontal supaya gerakan terasa seperti cermin
-LOCK_CAMERA = True       # kunci auto exposure & white balance saat kalibrasi
+LOCK_CAMERA = False      # kunci auto exposure & white balance saat kalibrasi
 
 # --------------------------------------------------------------------------
 # Tracking
 # --------------------------------------------------------------------------
-# "glove" = sarung tangan berwarna (HSV), "skin" = warna kulit (YCrCb)
+# "glove" = warna objek/sarung tangan (HSV), "skin" = warna kulit (YCrCb)
 TRACK_MODE = "glove"
 PROC_WIDTH = 640               # deteksi dikerjakan di resolusi ini (lebih cepat)
 MIN_AREA_FRAC = 0.006          # kontur lebih kecil dari ini (fraksi luas frame) diabaikan
@@ -31,15 +31,15 @@ MORPH_KERNEL = 7               # ukuran kernel elips untuk morfologi
 #               "centroid" = pusat massa momen kontur (sesuai PRD awal)
 CURSOR_POINT = "palm"
 
-# Rentang awal sebelum kalibrasi: (low, high) di ruang warna masing-masing
-GLOVE_DEFAULT_RANGE = ((85, 50, 120), (130, 255, 255))    # HSV, biru muda (V tinggi: bukan jeans)
+# Rentang awal fallback sebelum kalibrasi: (low, high) di ruang warna masing-masing
+GLOVE_DEFAULT_RANGE = ((95, 45, 25), (135, 255, 255))     # fallback awal sebelum kalibrasi
 SKIN_DEFAULT_RANGE = ((0, 133, 77), (255, 173, 127))      # YCrCb, rentang klasik
 
 CALIB_FRAMES = 25              # jumlah frame sampel saat kalibrasi
 CALIB_ROI_FRAC = 0.14          # sisi kotak kalibrasi (fraksi lebar frame)
-GLOVE_MARGIN = (8, 35, 50)     # margin H, S, V di luar persentil 5-95
-GLOVE_MIN_S = 40               # batas bawah saturasi: pemisah sarung tangan dari putih/abu
-GLOVE_MIN_V = 40
+GLOVE_MARGIN = (10, 40, 45)    # margin H, S, V di sekitar warna dominan (persentil 5-95)
+GLOVE_MIN_S = 20               # batas bawah saturasi minimum agar warna gelap/pudar tetap masuk
+GLOVE_MIN_V = 15               # batas bawah kecerahan minimum agar warna gelap (mis. biru tua) terbaca
 SKIN_MARGIN = (6, 6)           # margin Cr, Cb
 REMOVE_FACE = True             # mode skin: hapus area wajah dengan Haar cascade
 PROFILE_DIR = "profiles"

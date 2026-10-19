@@ -51,10 +51,15 @@ def open_camera(index: int = config.CAMERA_INDEX,
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    ok, _ = cap.read()
+    unlock_camera(cap)
+    ok, frame = cap.read()
     if not ok:
         cap.release()
         return None
+    # Jika driver masih nyangkut di exposure gelap (mis. -6.0 dari sesi sebelumnya), naikkan:
+    if frame is not None and frame.mean() < 75:
+        cap.set(cv2.CAP_PROP_EXPOSURE, -4)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
     return cap
 
 
@@ -66,7 +71,7 @@ def lock_camera(cap) -> str:
     notes = []
     exposure = cap.get(cv2.CAP_PROP_EXPOSURE)
     if cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, _AE_MANUAL):
-        if exposure != 0:
+        if exposure not in (0, -6.0, -7.0):
             cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
         notes.append("exposure dikunci")
     else:
@@ -82,8 +87,14 @@ def lock_camera(cap) -> str:
 
 
 def unlock_camera(cap) -> None:
-    """Kembalikan kamera ke mode otomatis (dipakai sebelum kalibrasi ulang)."""
-    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, _AE_AUTO)
+    """Kembalikan kamera ke mode otomatis di berbagai backend (MSMF, DirectShow, V4L2)."""
+    if _LINUX:
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+    else:
+        # Di Windows: DirectShow memakai 0.75, sedangkan MSMF memakai 1 (atau 3)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)
+        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
     cap.set(cv2.CAP_PROP_AUTO_WB, 1)
 
 
@@ -184,6 +195,7 @@ class HandTracker:
         self.hi = np.array(default[1], dtype=np.uint8)
         self.calibrated = False
         self.warning = ""
+        self.dominant_bgr: tuple[int, int, int] = (200, 150, 50)
         k = config.MORPH_KERNEL
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
 
@@ -208,7 +220,7 @@ class HandTracker:
 
     @property
     def label(self) -> str:
-        return "Sarung tangan (HSV)" if self.mode == "glove" else "Kulit (YCrCb)"
+        return "Warna Dominan (HSV)" if self.mode == "glove" else "Kulit (YCrCb)"
 
     # ------------------------------------------------------------ helper
     @staticmethod
@@ -259,23 +271,60 @@ class HandTracker:
         self.calibrated = True
 
     def _calibrate_glove(self, px: np.ndarray) -> None:
-        # Buang piksel yang jelas bukan sarung tangan (sela jari, latar)
-        keep = (np.abs(px[:, 0] - np.median(px[:, 0])) <= 20) & (px[:, 1] >= 15)
-        if keep.sum() > 0.3 * len(px):
-            px = px[keep]
+        """Cari warna dominan di dalam kotak ROI lalu buat threshold HSV otomatis."""
+        # 1. Buang piksel hitam pekat / noise mati
+        valid_v = px[:, 2] >= 12
+        if valid_v.sum() >= 0.2 * len(px):
+            px = px[valid_v]
+
+        # 2. Prioritaskan piksel berwarna (bukan dinding putih/abu-abu di sudut kotak)
+        chromatic = (px[:, 1] >= config.GLOVE_MIN_S) & (px[:, 2] >= config.GLOVE_MIN_V)
+        work = px[chromatic] if chromatic.sum() >= 0.25 * len(px) else px
+
+        # 3. Cari Hue dominan menggunakan histogram melingkar (0..179)
+        h_int = np.clip(work[:, 0].astype(np.int32), 0, 179)
+        hist = np.bincount(h_int, minlength=180)
+        pad = 10
+        padded = np.concatenate([hist[-pad:], hist, hist[:pad]])
+        smooth_hist = np.convolve(padded, np.ones(2 * pad + 1, dtype=np.int32), mode="valid")
+        dom_h = float(np.argmax(smooth_hist))
+
+        # 4. Ambil klaster piksel yang memiliki warna sekitar Hue dominan
+        dh = np.abs(work[:, 0] - dom_h)
+        dh = np.minimum(dh, 180.0 - dh)
+        inliers = dh <= 22.0
+        cluster = work[inliers] if inliers.sum() >= 0.2 * len(work) else work
+
+        # Simpan warna dominan dalam BGR untuk ditampilkan di UI
+        med_s = float(np.median(cluster[:, 1]))
+        med_v = float(np.median(cluster[:, 2]))
+        hsv_swatch = np.uint8([[[int(round(dom_h)) % 180,
+                                 int(np.clip(med_s, 0, 255)),
+                                 int(np.clip(med_v, 0, 255))]]])
+        bgr_swatch = cv2.cvtColor(hsv_swatch, cv2.COLOR_HSV2BGR)[0, 0]
+        self.dominant_bgr = (int(bgr_swatch[0]), int(bgr_swatch[1]), int(bgr_swatch[2]))
+
+        # 5. Hitung threshold otomatis (lo & hi) di sekitar klaster warna dominan
         margin = np.array(config.GLOVE_MARGIN, dtype=np.float32)
-        lo = np.percentile(px, 5, axis=0) - margin
-        hi = np.percentile(px, 95, axis=0) + margin
-        lo[0], hi[0] = max(lo[0], 0), min(hi[0], 179)
-        lo[1] = max(lo[1], config.GLOVE_MIN_S)
-        lo[2] = max(lo[2], config.GLOVE_MIN_V)
-        hi[1], hi[2] = 255, 255
-        self.set_range(lo, hi)
-        s_p5 = float(np.percentile(px[:, 1], 5))
+        signed_dh = ((cluster[:, 0] - dom_h + 90.0) % 180.0) - 90.0
+        h_p5, h_p95 = np.percentile(signed_dh, [5, 95])
+        s_p5, s_p95 = np.percentile(cluster[:, 1], [5, 95])
+        v_p5, v_p95 = np.percentile(cluster[:, 2], [5, 95])
+
+        h_lo = max(0.0, min(dom_h - 8.0, dom_h + h_p5 - margin[0]))
+        h_hi = min(179.0, max(dom_h + 8.0, dom_h + h_p95 + margin[0]))
+
+        s_lo = max(float(config.GLOVE_MIN_S), s_p5 - margin[1])
+        s_hi = min(255.0, max(s_p95 + margin[1] + 15.0, s_lo + 50.0))
+
+        v_lo = max(float(config.GLOVE_MIN_V), v_p5 - margin[2])
+        v_hi = min(255.0, max(v_p95 + margin[2] + 25.0, v_lo + 60.0))
+
+        self.set_range([h_lo, s_lo, v_lo], [h_hi, s_hi, v_hi])
         self.warning = ""
-        if s_p5 < config.GLOVE_MIN_S + 10:
-            self.warning = ("Saturasi sarung tangan rendah. Kurangi cahaya terlalu terang, "
-                            "atau turunkan 'S min' di jendela debug (tombol D).")
+        if s_p95 < config.GLOVE_MIN_S + 10:
+            self.warning = ("Warna di kotak sangat pucat/abu-abu. "
+                            "Gunakan objek berwarna atau sesuaikan di Debug (tombol D).")
 
     def _calibrate_skin(self, px: np.ndarray) -> None:
         cr, cb = px[:, 1], px[:, 2]
@@ -290,7 +339,14 @@ class HandTracker:
 
     # ------------------------------------------------------- segmentasi
     def segment(self, conv: np.ndarray, small_bgr: np.ndarray) -> np.ndarray:
-        mask = cv2.inRange(conv, self.lo, self.hi)
+        if self.mode == "glove" and self.lo[0] > self.hi[0]:
+            lo1 = np.array([self.lo[0], self.lo[1], self.lo[2]], dtype=np.uint8)
+            hi1 = np.array([179, self.hi[1], self.hi[2]], dtype=np.uint8)
+            lo2 = np.array([0, self.lo[1], self.lo[2]], dtype=np.uint8)
+            hi2 = np.array([self.hi[0], self.hi[1], self.hi[2]], dtype=np.uint8)
+            mask = cv2.bitwise_or(cv2.inRange(conv, lo1, hi1), cv2.inRange(conv, lo2, hi2))
+        else:
+            mask = cv2.inRange(conv, self.lo, self.hi)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel, iterations=2)
         if self.face_cascade is not None:
@@ -360,9 +416,9 @@ class HandTracker:
 
 
 class Calibrator:
-    """Mengumpulkan sampel warna dari kotak ROI selama beberapa frame.
+    """Mengumpulkan sampel warna dominan dari kotak ROI dan membuat threshold otomatis.
 
-    Fase: "wait" (menunggu SPASI) -> "sampling" -> "preview" (cek mask).
+    Fase: "wait" (live deteksi di kotak, menunggu SPASI/ENTER) -> "sampling" -> "preview".
     """
 
     def __init__(self, tracker: HandTracker, cap):
@@ -370,33 +426,58 @@ class Calibrator:
         self.cap = cap
         self.phase = "wait"
         self.samples: list[np.ndarray] = []
+        self.live_samples: list[np.ndarray] = []
         self.skip = 0
         self.cam_note = ""
 
     def start(self) -> None:
         self.phase = "wait"
         self.samples = []
+        self.live_samples = []
         if self.cap is not None and config.LOCK_CAMERA:
             unlock_camera(self.cap)   # biarkan kamera menyesuaikan cahaya ruangan dulu
             self.cam_note = "Kamera mode otomatis, menyesuaikan cahaya ruangan..."
+        else:
+            self.cam_note = ""
 
     def begin_sampling(self) -> None:
         self.samples = []
         self.phase = "sampling"
-        self.skip = 5                 # abaikan beberapa frame setelah kamera dikunci
+        self.skip = 5 if config.LOCK_CAMERA else 0
         if self.cap is not None and config.LOCK_CAMERA:
             self.cam_note = lock_camera(self.cap)
 
+    def _extract_roi_pixels(self, frame: np.ndarray) -> np.ndarray:
+        small = self.tracker.resize(frame)
+        conv = self.tracker.convert(small)
+        x0, y0, x1, y1 = self.tracker.roi_rect(small.shape)
+        return conv[y0:y1, x0:x1].reshape(-1, 3).copy()
+
+    def calibrate_instant(self, frame: np.ndarray | None = None) -> bool:
+        """Kalibrasi langsung dari sampel live kotak ROI saat ini."""
+        if frame is not None:
+            self.live_samples.append(self._extract_roi_pixels(frame))
+            if len(self.live_samples) > 8:
+                self.live_samples.pop(0)
+        if not self.live_samples:
+            return False
+        self.tracker.calibrate(self.live_samples)
+        return True
+
     def feed(self, frame: np.ndarray) -> None:
+        if self.phase == "wait":
+            # Pantau warna dominan secara live di dalam kotak kalibrasi
+            self.live_samples.append(self._extract_roi_pixels(frame))
+            if len(self.live_samples) > 6:
+                self.live_samples.pop(0)
+            self.tracker.calibrate(self.live_samples)
+            return
         if self.phase != "sampling":
             return
         if self.skip > 0:
             self.skip -= 1
             return
-        small = self.tracker.resize(frame)
-        conv = self.tracker.convert(small)
-        x0, y0, x1, y1 = self.tracker.roi_rect(small.shape)
-        self.samples.append(conv[y0:y1, x0:x1].reshape(-1, 3).copy())
+        self.samples.append(self._extract_roi_pixels(frame))
         if len(self.samples) >= config.CALIB_FRAMES:
             self.tracker.calibrate(self.samples)
             self.phase = "preview"

@@ -439,7 +439,6 @@ class Renderer:
                      (L.w // 2, L.h // 2 + 25), 0.7, C_MUTED, 2, "center")
             return img
         img = cv2.resize(frame, (L.w, L.h), interpolation=cv2.INTER_LINEAR)
-        img = cv2.convertScaleAbs(img, alpha=0.85, beta=0)
 
         if calib.phase == "preview" and result is not None:
             m = cv2.resize(result.mask, (L.w, L.h), interpolation=cv2.INTER_NEAREST) > 0
@@ -451,28 +450,36 @@ class Renderer:
             x0, y0, x1, y1 = tracker.roi_rect_norm(frame.shape)
             p0, p1 = (int(x0 * L.w), int(y0 * L.h)), (int(x1 * L.w), int(y1 * L.h))
             cv2.rectangle(img, p0, p1, C_ACCENT, 3)
-            put_text(img, "taruh di sini", (p0[0] + (p1[0] - p0[0]) // 2, p1[1] + 28),
+            cx_box = p0[0] + (p1[0] - p0[0]) // 2
+            put_text(img, "taruh warna di sini", (cx_box, p1[1] + 28),
                      0.6, C_ACCENT, 2, "center")
+            if tracker.mode == "glove":
+                # Kotak pratinjau warna dominan yang terdeteksi di dalam area kalibrasi
+                sw_x0, sw_y0 = cx_box - 95, p1[1] + 42
+                sw_x1, sw_y1 = sw_x0 + 32, sw_y0 + 26
+                cv2.rectangle(img, (sw_x0, sw_y0), (sw_x1, sw_y1), tracker.dominant_bgr, -1)
+                cv2.rectangle(img, (sw_x0, sw_y0), (sw_x1, sw_y1), (255, 255, 255), 2)
+                put_text(img, "Warna Dominan", (sw_x1 + 10, sw_y0 + 19), 0.55, C_TEXT, 1)
 
-        blend_rect(img, 0, 0, L.w, 160, (0, 0, 0), 0.6)
+        blend_rect(img, 0, 0, L.w, 168, (0, 0, 0), 0.6)
         put_text(img, f"KALIBRASI WARNA  -  {tracker.label}", (30, 45), 0.95, C_ACCENT, 2)
-        thing = "telapak bersarung tangan" if tracker.mode == "glove" else "telapak tangan"
+        thing = "objek/sarung tangan warna apa saja" if tracker.mode == "glove" else "telapak tangan"
         if calib.phase == "wait":
             extra = "   L: pakai profil tersimpan" if info.get("profile_exists") else ""
-            lines = [f"1. Masukkan {thing} ke kotak kuning sampai kotak penuh.",
-                     "2. Tekan SPASI lalu tahan diam sekitar 1 detik.",
-                     f"ENTER: lewati (pakai rentang saat ini){extra}   M: mode mouse   Q: keluar"]
+            lines = [f"1. Masukkan {thing} ke kotak kuning sampai penuh.",
+                     f"2. Tekan SPASI (tahan 1 dtk) atau ENTER untuk kunci warna.   [Threshold: {tracker.range_text()}]",
+                     f"ENTER: kunci warna saat ini{extra}   M: mode mouse   Q: keluar"]
         elif calib.phase == "sampling":
-            lines = ["Mengambil sampel warna... tahan diam."]
+            lines = ["Menganalisis warna dominan & membuat threshold... tahan diam."]
             bx0, by0 = 30, 100
             cv2.rectangle(img, (bx0, by0), (bx0 + 500, by0 + 18), C_EDGE, 2)
             cv2.rectangle(img, (bx0, by0), (bx0 + int(500 * calib.progress), by0 + 18), C_ACCENT, -1)
         else:
-            lines = ["Area HIJAU = yang terdeteksi. Pastikan hanya tangan yang hijau.",
-                     "ENTER: mulai main    SPASI: ulangi kalibrasi    D: atur manual (debug)",
-                     f"Rentang: {tracker.range_text()}"]
+            lines = ["Area HIJAU = yang terdeteksi. Pastikan hanya tangan/objek yang hijau.",
+                     "ENTER: mulai main    SPASI: kalibrasi ulang    D: atur manual (debug)",
+                     f"Threshold aktif: {tracker.range_text()}"]
         for i, text in enumerate(lines):
-            put_text(img, text, (30, 82 + i * 28), 0.62, C_TEXT, 1 if i else 2)
+            put_text(img, text, (30, 82 + i * 28), 0.60, C_TEXT, 1 if i else 2)
 
         notes = [n for n in (info.get("cam_note"), tracker.warning) if n]
         if notes:
