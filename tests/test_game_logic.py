@@ -1,6 +1,3 @@
-"""Tes logika game. Jalankan dari folder proyek:  python -m pytest tests
-atau tanpa pytest:  python tests/test_game_logic.py
-"""
 import os
 import random
 import sys
@@ -33,25 +30,25 @@ def test_catalog_tiers():
     assert SINGLE.cells == 1
     assert _piece("Silang").cells == 5
     names = {p.name for g in CATALOG[3] for p in g}
-    assert "Garis 5 #1" in names and "Garis 5 #2" in names   # 1x5 dan 5x1
+    assert "Garis 5 #1" in names and "Garis 5 #2" in names
 
 
 def test_fit_checking_bounds_and_overlap():
     b = Board()
     line5 = _piece("Garis 5 #1")
     assert b.can_place(line5, 0, 0)
-    assert not b.can_place(line5, 0, 1)          # keluar tepi kanan
+    assert not b.can_place(line5, 0, 1)
     assert not b.can_place(line5, -1, 0)
     b.grid[2, 2] = 3
     sq = _piece("2x2")
-    assert not b.can_place(sq, 1, 1)             # menimpa petak warna 3
+    assert not b.can_place(sq, 1, 1)
     assert b.can_place(sq, 0, 0)
 
 
 def test_row_and_column_clear_together():
     b = Board()
-    b.grid[0, :4] = 1      # baris 0 kurang kolom 4
-    b.grid[1:, 4] = 1      # kolom 4 kurang baris 0
+    b.grid[0, :4] = 1
+    b.grid[1:, 4] = 1
     rows, cols = b.place(SINGLE, 0, 4)
     assert rows == [0] and cols == [4]
     assert b.is_empty()
@@ -62,7 +59,6 @@ def test_scoring_and_combo():
     g.board.grid[0, :4] = 1
     g.slots = [SINGLE, SINGLE, SINGLE]
     res = g.place(0, 0, 4)
-    # 1 petak + 10*1^2 + bonus papan bersih
     assert res.points == 1 + 10 + config.BOARD_CLEAR_BONUS
     assert res.board_cleared and g.combo == 1
     g.board.grid[1, :4] = 1
@@ -76,7 +72,7 @@ def test_anchor_centers_and_clamps():
     assert Game.anchor(SINGLE, 2.5, 2.5) == (2, 2)
     assert Game.anchor(sq, 2.0, 2.0) == (1, 1)
     assert Game.anchor(sq, 2.6, 2.6) == (2, 2)
-    assert Game.anchor(sq, 4.9, 4.9) == (3, 3)   # di-clamp ke dalam papan
+    assert Game.anchor(sq, 4.9, 4.9) == (3, 3)
     assert Game.anchor(sq, -0.3, -0.3) == (0, 0)
 
 
@@ -99,7 +95,7 @@ def test_spawner_fair_play_random_boards():
     for _ in range(300):
         b = Board()
         b.grid[:] = (rng.random() < 0.55) * 1
-        for r in range(5):                     # jangan ada garis penuh
+        for r in range(5):
             if b.grid[r].all():
                 b.grid[r, rng.randrange(5)] = 0
         for c in range(5):
@@ -124,16 +120,16 @@ def test_can_place_all_detects_impossible():
 def test_game_over_and_high_score():
     g = _tmp_game()
     g.board.grid[:] = 1
-    for i in range(5):                 # lubang diagonal: hanya 1x1 yang muat
+    for i in range(5):
         g.board.grid[i, i] = 0
     g.slots = [SINGLE, _piece("2x2"), _piece("Silang")]
-    g.place(0, 0, 0)                   # hapus baris 0 & kolom 0, dapat poin
+    g.place(0, 0, 0)
     assert not g.game_over and g.score > 0
     g.board.grid[:] = 1
     for i in range(5):
         g.board.grid[i, i] = 0
     g._check_game_over()
-    assert g.game_over                 # 2x2 dan silang tidak muat lagi
+    assert g.game_over
     g2 = Game(random.Random(0), highscore_path=g.highscore_path)
     assert g2.high_score == g.high_score > 0
 

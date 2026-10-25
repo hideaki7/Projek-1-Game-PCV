@@ -1,19 +1,18 @@
-"""Gesture Block Blast 5x5: loop game, state machine Hover & Dwell, input keyboard.
-
-Jalankan:  python main.py
-
-State interaksi:
-  idle -> (dwell di slot 1.0 s)  -> hold
-  hold -> (dwell di petak valid 1.2 s) -> taruh balok -> idle / over
-  hold -> (keluar papan / dwell di slot asal / tangan hilang) -> batal -> idle
-  over -> (dwell di tombol MAIN LAGI / tekan R) -> idle
-"""
 from __future__ import annotations
 
 import os
+import threading
 import time
 
 import cv2
+import numpy as np
+
+try:
+    import sounddevice as sd
+    import soundfile as sf
+except ImportError:
+    sd = None
+    sf = None
 
 import config
 from game_logic import Game
@@ -23,13 +22,118 @@ from ui import C_ACCENT, C_VALID, DebugWindow, Layout, Renderer
 IDLE, HOLD, OVER = "idle", "hold", "over"
 
 
+# --- Audio Mixer (Backsound Loop & Sound Effects) ---
+class AudioManager:
+    SAMPLE_RATE = 48000
+
+    def __init__(self):
+        self.bgm: np.ndarray | None = None
+        self.bgm_pos = 0
+        self.bgm_paused = False
+        self.sfx: dict[str, np.ndarray] = {}
+        self.active_sfx: list[list] = []
+        self.lock = threading.Lock()
+        self.stream = None
+        self._load_assets()
+
+    @staticmethod
+    def _load_wave(path: str, gain_db: float) -> np.ndarray | None:
+        if sf is None or not os.path.exists(path):
+            return None
+        try:
+            data, _ = sf.read(path, dtype="float32", always_2d=True)
+        except Exception:
+            return None
+        if len(data) == 0:
+            return None
+        if data.shape[1] == 1:
+            data = np.repeat(data, 2, axis=1)
+        elif data.shape[1] > 2:
+            data = data[:, :2]
+        # Normalisasi puncak dasar ke -6 dBFS (0.5) lalu kalikan faktor gain dB
+        peak = float(np.max(np.abs(data)))
+        if peak > 1e-5:
+            data = data * (0.5 / peak)
+        gain = 10.0 ** (gain_db / 20.0)
+        return np.clip(data * gain, -1.0, 1.0).astype(np.float32)
+
+    def _load_assets(self) -> None:
+        self.bgm = self._load_wave(config.BGM_PATH, config.BGM_GAIN_DB)
+        sfx_specs = {
+            "place": (config.SFX_PLACE_PATH, config.SFX_PLACE_GAIN_DB),
+            "blast": (config.SFX_BLAST_PATH, config.SFX_BLAST_GAIN_DB),
+            "gameover": (config.SFX_GAMEOVER_PATH, config.SFX_GAMEOVER_GAIN_DB),
+        }
+        for name, (path, gain_db) in sfx_specs.items():
+            wav = self._load_wave(path, gain_db)
+            if wav is not None:
+                self.sfx[name] = wav
+
+    def _callback(self, outdata: np.ndarray, frames: int, _time, _status) -> None:
+        outdata.fill(0.0)
+        if self.bgm is not None and not self.bgm_paused:
+            n = len(self.bgm)
+            rem = frames
+            out_idx = 0
+            while rem > 0:
+                chunk = min(rem, n - self.bgm_pos)
+                outdata[out_idx:out_idx + chunk] += self.bgm[self.bgm_pos:self.bgm_pos + chunk]
+                self.bgm_pos = (self.bgm_pos + chunk) % n
+                out_idx += chunk
+                rem -= chunk
+
+        with self.lock:
+            still_active = []
+            for item in self.active_sfx:
+                buf, pos = item
+                chunk = min(frames, len(buf) - pos)
+                if chunk > 0:
+                    outdata[:chunk] += buf[pos:pos + chunk]
+                    item[1] += chunk
+                if item[1] < len(buf):
+                    still_active.append(item)
+            self.active_sfx = still_active
+
+        np.clip(outdata, -1.0, 1.0, out=outdata)
+
+    def start(self) -> None:
+        if sd is None or (self.bgm is None and not self.sfx):
+            return
+        try:
+            self.stream = sd.OutputStream(
+                samplerate=self.SAMPLE_RATE,
+                channels=2,
+                dtype="float32",
+                callback=self._callback,
+            )
+            self.stream.start()
+        except Exception:
+            self.stream = None
+
+    def play(self, name: str) -> None:
+        buf = self.sfx.get(name)
+        if buf is None or self.stream is None:
+            return
+        with self.lock:
+            self.active_sfx.append([buf, 0])
+
+    def pause_bgm(self) -> None:
+        self.bgm_paused = True
+
+    def resume_bgm(self) -> None:
+        self.bgm_paused = False
+
+    def stop(self) -> None:
+        if self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+
+
 class DwellTimer:
-    """Menghitung lama kursor 'berdiam' pada satu target.
-
-    Waktu hanya bertambah saat update() dipanggil dengan target yang sama, jadi
-    kalau tangan hilang sebentar (update tidak dipanggil) timer otomatis tertahan.
-    """
-
     def __init__(self):
         self.reset()
 
@@ -43,15 +147,10 @@ class DwellTimer:
             self.elapsed = 0.0
         else:
             self.elapsed += dt
-        return min(1.0, self.elapsed / duration)
+        return min(1.0, self.elapsed / max(duration, 1e-6))
 
 
 class TargetStabilizer:
-    """Histeresis: sel target baru diterima setelah stabil beberapa frame.
-
-    Mencegah timer dwell ter-reset karena kursor bergetar di perbatasan petak.
-    """
-
     def __init__(self, frames: int):
         self.frames = frames
         self.reset()
@@ -74,13 +173,13 @@ class TargetStabilizer:
         return self.current
 
 
+# --- State Machine Interaksi (idle / hold / over) ---
 class Interaction:
-    """State machine Hover & Dwell."""
-
-    def __init__(self, game: Game, layout: Layout, effects):
+    def __init__(self, game: Game, layout: Layout, effects, audio: AudioManager | None = None):
         self.game = game
         self.L = layout
         self.fx = effects
+        self.audio = audio
         self.dwell = DwellTimer()
         self.stab = TargetStabilizer(config.TARGET_STABLE_FRAMES)
         self.message = ""
@@ -90,7 +189,7 @@ class Interaction:
     def reset(self) -> None:
         self.state = OVER if self.game.game_over else IDLE
         self.held = None
-        self.ghost = None                 # ((r0, c0), valid)
+        self.ghost = None
         self.clear_preview = ([], [])
         self.progress = 0.0
         self.progress_kind = None
@@ -119,7 +218,6 @@ class Interaction:
                     "atau tarik tangan keluar papan.")
         return "Tahan tangan di tombol MAIN LAGI, atau tekan R."
 
-    # ------------------------------------------------------------ update
     def update(self, cursor, now: float, dt: float) -> None:
         self.progress, self.progress_kind, self.hover_slot = 0.0, None, None
         if cursor is None:
@@ -139,7 +237,7 @@ class Interaction:
         slot = self.L.slot_at(cursor)
         self.hover_slot = slot
         if self.blocked_slot is not None and slot != self.blocked_slot:
-            self.blocked_slot = None      # kursor sudah keluar dari slot yang baru dibatalkan
+            self.blocked_slot = None
         if (slot is None or self.game.slots[slot] is None
                 or slot == self.blocked_slot or now < self.cooldown_until):
             self.dwell.reset()
@@ -157,6 +255,9 @@ class Interaction:
             self.dwell.reset()
 
     def _update_hold(self, cursor, now, dt) -> None:
+        if self.held is None or self.game.slots[self.held] is None:
+            self.reset()
+            return
         piece = self.game.slots[self.held]
         if self.L.over_board(cursor):
             self.entered_board = self.left_origin = True
@@ -175,7 +276,6 @@ class Interaction:
                 self._place(target, now)
             return
 
-        # Di luar papan
         self.ghost = None
         self.clear_preview = ([], [])
         self.stab.reset()
@@ -203,15 +303,25 @@ class Interaction:
         else:
             self.dwell.reset()
 
-    # ------------------------------------------------------------ aksi
     def _place(self, target, now: float) -> None:
+        if self.held is None:
+            return
         piece = self.game.slots[self.held]
+        if piece is None:
+            return
         res = self.game.place(self.held, *target)
         if res is None:
             return
         n = config.BOARD_SIZE
         cleared = {(r, c) for r in res.rows for c in range(n)}
         cleared |= {(r, c) for c in res.cols for r in range(n)}
+        if self.audio is not None:
+            self.audio.play("place")
+            if cleared:
+                self.audio.play("blast")
+            if self.game.game_over:
+                self.audio.pause_bgm()
+                self.audio.play("gameover")
         self.fx.add_clear(cleared, now)
         x, y = self.L.cell_xy(*target)
         center = (x + piece.w * self.L.cell / 2, y + piece.h * self.L.cell / 2)
@@ -230,14 +340,15 @@ class Interaction:
         self.state = OVER if self.game.game_over else IDLE
 
     def cancel(self, now: float, message: str = "") -> None:
+        self.dwell.reset()
+        self.stab.reset()
+        self.hover_slot = None
         if self.state != HOLD:
             return
         self.blocked_slot = self.held
         self.held = None
         self.ghost = None
         self.clear_preview = ([], [])
-        self.dwell.reset()
-        self.stab.reset()
         self.cooldown_until = now + config.PICK_COOLDOWN
         self.state = IDLE
         if message:
@@ -248,6 +359,8 @@ class Interaction:
         self.fx.clear()
         self.reset()
         self.cooldown_until = now + config.PICK_COOLDOWN
+        if self.audio is not None:
+            self.audio.resume_bgm()
 
 
 def profile_path(mode: str) -> str:
@@ -258,7 +371,9 @@ def main() -> None:
     layout = Layout()
     renderer = Renderer(layout)
     game = Game()
-    inter = Interaction(game, layout, renderer.fx)
+    audio = AudioManager()
+    audio.start()
+    inter = Interaction(game, layout, renderer.fx, audio)
     tracker = HandTracker(config.TRACK_MODE)
     prof = profile_path(tracker.mode)
     debug = DebugWindow()
@@ -313,7 +428,7 @@ def main() -> None:
                         debug.sync(tracker)
                     elif before == "sampling" and calib.phase == "preview":
                         tracker.save_profile(prof)
-                        debug.sync(tracker)          # trackbar ikut hasil kalibrasi baru
+                        debug.sync(tracker)
                 canvas = renderer.render_calibration(
                     frame, calib, tracker, result,
                     {"profile_exists": os.path.exists(prof), "cam_note": calib.cam_note})
@@ -354,7 +469,7 @@ def main() -> None:
             except cv2.error:
                 break
 
-            # ------------------------------------------------ keyboard
+            # --- Kontrol Keyboard ---
             if key == ord("d") and cap is not None:
                 debug.toggle(tracker)
             elif key == ord("s") and cap is not None:
@@ -362,9 +477,9 @@ def main() -> None:
                 inter.toast(f"Profil warna disimpan ({os.path.basename(prof)}).", now)
 
             if app == "calib":
-                if key == 32 and calib.phase in ("wait", "preview"):         # SPASI
+                if key == 32 and calib.phase in ("wait", "preview"):
                     calib.begin_sampling()
-                elif key in (13, 10):                                        # ENTER
+                elif key in (13, 10):
                     if calib.phase == "preview":
                         tracker.save_profile(prof)
                         inter.toast("Kalibrasi selesai, profil disimpan.", now)
@@ -398,6 +513,7 @@ def main() -> None:
                 elif key == ord("r"):
                     inter.restart(now)
     finally:
+        audio.stop()
         if cap is not None:
             cap.release()
         cv2.destroyAllWindows()
