@@ -7,7 +7,6 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)](https://opencv.org/)
 [![NumPy](https://img.shields.io/badge/NumPy-1.24%2B-013243?style=for-the-badge&logo=numpy&logoColor=white)](https://numpy.org/)
-[![Style](https://img.shields.io/badge/Style-Retro%20Arcade-FFD700?style=for-the-badge)](#)
 
 ---
 
@@ -23,7 +22,7 @@
 
 ## 1. Penjelasan Game dan Konsepnya
 
-**Blast Block** adalah game puzzle penempatan balok pada papan berukuran **5x5** bergaya *Retro Arcade Pixel-Art* yang dikendalikan langsung menggunakan **gerakan tangan di depan kamera (webcam)**, murni menggunakan pengolahan citra OpenCV tanpa bantuan pustaka AI berat seperti MediaPipe.
+**Blast Block** adalah game puzzle penempatan balok pada papan berukuran **5x5** yang dikendalikan langsung menggunakan **gesture tangan di depan kamera**, murni menggunakan pengolahan citra OpenCV tanpa bantuan MediaPipe.
 
 ### Konsep Utama
 1. **Pelacakan Warna Klasik (Computer Vision):**
@@ -42,14 +41,8 @@ Antarmuka **Blast Block** dirancang dengan nuansa mesin *retro arcade* lengkap d
 ### A. Layar Kalibrasi Sensor
 Layar awal saat game dibuka untuk mengenali warna objek/sarung tangan atau telapak tangan sesuai kondisi cahaya ruangan Anda.
 
-> **[PLACEHOLDER SCREENSHOT KALIBRASI]**  
-> *Ganti path gambar di bawah ini dengan screenshot layar kalibrasi Anda:*
-```markdown
-<!-- Hapus tanda komentar atau ganti path gambar berikut -->
-![Tampilan Kalibrasi Sensor](assets/ss_kalibrasi.png)
-```
 <div align="center">
-  <img src="assets/ss_kalibrasi.png" alt="[Placeholder] Screenshot Tampilan Kalibrasi" width="780" />
+  <img src="Documentations/Kalibrasi Tangan.png" alt="[Placeholder] Screenshot Tampilan Kalibrasi" width="780" />
   <br>
   <em>Gambar 1: Tampilan Layar Kalibrasi Sensor Warna</em>
 </div>
@@ -59,14 +52,8 @@ Layar awal saat game dibuka untuk mengenali warna objek/sarung tangan atau telap
 ### B. Layar Utama Permainan (*In-Game*)
 Tampilan utama saat bermain yang terdiri dari **Header Skor & Rekor**, **Panel Status & Petunjuk** di kiri, **Papan 5x5 & 3 Slot Balok** di tengah, serta **Monitor Sensor Kamera & Kontrol Arcade** di kanan.
 
-> **[PLACEHOLDER SCREENSHOT IN-GAME]**  
-> *Ganti path gambar di bawah ini dengan screenshot tampilan in-game Anda:*
-```markdown
-<!-- Hapus tanda komentar atau ganti path gambar berikut -->
-![Tampilan In-Game Blast Block](assets/ss_ingame.png)
-```
 <div align="center">
-  <img src="assets/ss_ingame.png" alt="[Placeholder] Screenshot Tampilan In-Game" width="780" />
+  <img src="Documentations/Tampilan Ingame.png" alt="[Placeholder] Screenshot Tampilan In-Game" width="780" />
   <br>
   <em>Gambar 2: Tampilan Utama Permainan Blast Block</em>
 </div>
@@ -99,11 +86,9 @@ python main.py
 3. Tekan **`ENTER`** untuk langsung mengunci warna dominan saat ini, atau tekan **`SPASI`** (tahan diam sekitar 1 detik) untuk mengambil sampel beberapa *frame*.
 4. Pastikan pada layar pratinjau hanya objek/tangan Anda yang berubah menjadi warna **Hijau**. Tekan **`ENTER`** sekali lagi untuk masuk ke permainan.
 
-> **[PLACEHOLDER VIDEO DEMO KALIBRASI]**  
-> *Masukkan file GIF atau video pendek cara melakukan kalibrasi di bawah ini:*
 <div align="center">
   <!-- Ganti src dengan path GIF atau MP4 demo kalibrasi Anda -->
-  <img src="assets/demo_kalibrasi.gif" alt="[Placeholder Video/GIF] Demo Cara Kalibrasi" width="680" />
+  <img src="Documentations/Kalibrasi Tangan.gif" alt="[Placeholder Video/GIF] Demo Cara Kalibrasi" width="680" />
   <br>
   <em>Video 1: Demo singkat proses kalibrasi warna objek/tangan</em>
 </div>
@@ -115,13 +100,11 @@ python main.py
 2. Gerakkan tangan Anda di dalam zona kamera hingga kursor *reticle* berada di atas salah satu slot balok.
 3. **Tahan tangan diam selama `1.0 detik`** hingga cincin kuning penuh, maka balok akan terangkat dan mengikuti kursor Anda.
 
-> **[PLACEHOLDER VIDEO DEMO PICK BLOCK]**  
-> *Masukkan file GIF atau video pendek cara mengambil balok di bawah ini:*
 <div align="center">
   <!-- Ganti src dengan path GIF atau MP4 demo pick block Anda -->
-  <img src="assets/demo_pick.gif" alt="[Placeholder Video/GIF] Demo Cara Pick Block" width="680" />
+  <img src="Documentations/Meletakkan Blok.png" alt="[Placeholder Video/GIF] Demo Cara Pick Block" width="680" />
   <br>
-  <em>Video 2: Demo mengarahkan kursor dan menahan 1 detik untuk mengambil balok</em>
+  <em>Gambar 3: Mengarahkan kursor dan menahan 1 detik untuk mengambil balok</em>
 </div>
 
 ---
@@ -135,13 +118,11 @@ python main.py
 3. **Tahan tangan diam selama `1.2 detik`** pada posisi valid untuk meletakkan balok.
 4. **Membatalkan Balok:** Tarik kursor keluar dari area papan selama `0.5 detik` atau tahan kembali di slot asal selama `1.0 detik` untuk mengembalikan balok ke slot.
 
-> **[PLACEHOLDER VIDEO DEMO PLACE BLOCK]**  
-> *Masukkan file GIF atau video pendek cara meletakkan balok & blast baris/kolom di bawah ini:*
 <div align="center">
   <!-- Ganti src dengan path GIF atau MP4 demo place block Anda -->
-  <img src="assets/demo_place.gif" alt="[Placeholder Video/GIF] Demo Cara Place Block & Blast" width="680" />
+  <img src="Documentations/Meletakkan Blok.gif" alt="[Placeholder Video/GIF] Demo Cara Place Block & Blast" width="680" />
   <br>
-  <em>Video 3: Demo meletakkan balok ke papan 5x5 dan menghancurkan baris/kolom</em>
+  <em>Video 2: Demo meletakkan balok ke papan 5x5 dan menghancurkan baris/kolom</em>
 </div>
 
 ---
@@ -173,24 +154,18 @@ Game ini dilengkapi algoritma pencari kombinasi (*backtracking bitmask*) yang me
 ### 2. *One-Euro Filter Smoothing* & *Target Stabilizer*
 Agar kursor tidak bergetar saat tangan menahan posisi (*dwell*), sistem memakai **One-Euro Filter** yang adaptif (stabil saat tangan diam, namun tetap cepat dan responsif saat tangan berpindah) ditambah histeresis **Target Stabilizer** antar-petak.
 
-### 3. *Real-Time Audio Mixer* (Backsound & SFX)
+### 3. *Backsound & SFX*
 Dilengkapi sistem audio *multi-track* secara *real-time*:
-- **Backsound (`Happy Ever After.mp3`):** Berputar otomatis (*looping*) dengan *gain* lembut (`-6 dB`), otomatis ter-*pause* saat *Game Over* dan *resume* saat bermain kembali.
-- **Sound Effects:** Suara khusus saat menaruh balok (`Place.mp3`), memecahkan baris/kolom (`Blast.mp3`), dan saat permainan berakhir (`Game Over (2).mp3`).
+- **Backsound (`Happy Ever After`):** Berputar otomatis ketika game dibuka.
+- **Sound Effects:** Efek suara saat menaruh balok (`Place.mp3`), memecahkan baris/kolom (`Blast.mp3`), dan saat permainan berakhir (`Game Over (2).mp3`).
 
 ### 4. *Debug Mask* & Pengaturan Manual HSV (`Tombol D`)
 Jika kondisi pencahayaan ruangan sangat ekstrem (misalnya pantulan lampu proyektor atau latar belakang berwarna serupa), Anda dapat menekan tombol **`D`** untuk membuka jendela **Debug Mask** dan menyetel *trackbar* rentang warna secara langsung.
 
-> **[PLACEHOLDER PANDUAN VISUAL / VIDEO CARA ATUR HSV]**  
-> *Ganti gambar/video di bawah ini dengan screenshot atau rekaman jendela Debug Mask (`Tombol D`):*
-```markdown
-<!-- Hapus tanda komentar atau ganti path gambar/video berikut -->
-![Cara Mengatur Trackbar HSV di Debug Mask](assets/demo_atur_hsv.png)
-```
 <div align="center">
-  <img src="assets/demo_atur_hsv.png" alt="[Placeholder] Cara Mengatur HSV di Jendela Debug Mask" width="720" />
+  <img src="Documentations/Kalibrasi HSV.gif" alt="[Placeholder] Cara Mengatur HSV di Jendela Debug Mask" width="720" />
   <br>
-  <em>Gambar 3: Jendela Debug Mask (Tombol D) untuk mengatur batas H, S, dan V secara manual</em>
+  <em>Video 3: Jendela Debug Mask (Tombol D) untuk mengatur batas H, S, dan V secara manual</em>
 </div>
 
 **Tips Mengatur Trackbar HSV di Jendela Debug:**
@@ -226,7 +201,7 @@ gesture_block_blast/
 - **SoundDevice & SoundFile (`sounddevice`, `soundfile`)**: Pemutaran *stream* audio berlatensi rendah untuk *backsound looping* dan efek suara simultan dengan pengaturan *decibel gain*.
 
 ### Tools & AI Assistants
-Pengembangan proyek **Blast Block** ini didukung oleh berbagai *tools* desain dan asisten AI modern:
-- **Figma**: Digunakan untuk merancang aset visual, tata letak konsep UI, serta pembuatan logo pixel-art **BLAST BLOCK**.
+Pengembangan proyek **Blast Block** ini didukung oleh berbagai *tools* desain dan asisten AI:
+- **Figma**: Digunakan untuk merancang aset visual, tata letak konsep UI, serta pembuatan logo **BLAST BLOCK**.
 - **Claude**: Membantu dalam perancangan arsitektur awal algoritma permainan, logika *computer vision*, serta struktur sistem.
-- **Antigravity**: Membantu dalam *refactoring clean code*, perombakan penuh tampilan *Retro Arcade UI*, integrasi *real-time audio mixer*, perbaikan *bug* kalibrasi, serta penyusunan dokumentasi interaktif.
+- **Antigravity**: Membantu dalam *debugging*, penambahan fitur, dan perombakan UI.
